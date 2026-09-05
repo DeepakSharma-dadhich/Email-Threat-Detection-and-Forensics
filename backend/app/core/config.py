@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     GMAIL_TOKEN_PATH: str = "./data/oauth/gmail_token.json"
     VIRUSTOTAL_API_KEY: str | None = None
     GOOGLE_SAFE_BROWSING_API_KEY: str | None = None
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

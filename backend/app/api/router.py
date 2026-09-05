@@ -12,6 +12,7 @@ from app.api.routes import (
     threat_intelligence,
 )
 from app.api.routes import mailbox
+from app.api.routes import auth
 
 api_router = APIRouter()
 
@@ -72,4 +73,10 @@ api_router.include_router(
     mailbox.router,
     prefix="/mailbox",
     tags=["Mailbox"],
+)
+
+api_router.include_router(
+    auth.router,
+    prefix="/auth",
+    tags=["Authentication"],
 )

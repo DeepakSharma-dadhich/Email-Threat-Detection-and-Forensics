@@ -6,7 +6,11 @@ from fastapi import (
 
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import (
+    get_current_user,
+)
 from app.db.session import get_db
+from app.models.user import User
 
 from app.schemas.gmail import (
     GmailConnectionResponse,
@@ -35,9 +39,15 @@ router = APIRouter()
     "/status",
     response_model=GmailConnectionResponse,
 )
-def gmail_connection_status():
+def gmail_connection_status(
+    current_user: User = Depends(
+        get_current_user
+    ),
+):
     return (
-        GmailService()
+        GmailService(
+            user_id=current_user.id
+        )
         .connection_status()
     )
 
@@ -52,9 +62,14 @@ def gmail_messages(
         ge=1,
         le=50,
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return (
-        GmailService()
+        GmailService(
+            user_id=current_user.id
+        )
         .list_messages(
             limit=limit
         )
@@ -67,10 +82,18 @@ def gmail_messages(
 )
 def import_gmail_message(
     gmail_message_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(
+        get_db
+    ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     record = (
-        GmailImportService(db)
+        GmailImportService(
+            db=db,
+            user_id=current_user.id,
+        )
         .import_message(
             gmail_message_id
         )
@@ -91,10 +114,18 @@ def import_gmail_message(
 )
 def process_gmail_message(
     gmail_message_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(
+        get_db
+    ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return (
-        GmailProcessingService(db)
+        GmailProcessingService(
+            db=db,
+            user_id=current_user.id,
+        )
         .process_message(
             gmail_message_id
         )

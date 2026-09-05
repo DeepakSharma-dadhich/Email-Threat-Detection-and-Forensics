@@ -1,4 +1,3 @@
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -7,7 +6,11 @@ from fastapi import (
 
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import (
+    get_current_user,
+)
 from app.db.session import get_db
+from app.models.user import User
 
 from app.schemas.dashboard import (
     DashboardSummary,
@@ -30,10 +33,15 @@ def dashboard_summary(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return DashboardService(
         db
-    ).get_summary()
+    ).get_summary(
+        user_id=current_user.id
+    )
 
 
 @router.get(
@@ -51,9 +59,13 @@ def recent_analyses(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return DashboardService(
         db
     ).get_recent(
-        limit=limit
+        user_id=current_user.id,
+        limit=limit,
     )

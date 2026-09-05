@@ -4,12 +4,13 @@ from fastapi import (
     APIRouter,
     Depends,
 )
-
 from sqlalchemy.orm import Session
 
-from app.db.session import (
-    get_db,
+from app.api.dependencies import (
+    get_current_user,
 )
+from app.db.session import get_db
+from app.models.user import User
 
 from app.schemas.final_analysis import (
     AnalysisHistoryItem,
@@ -33,16 +34,15 @@ def analyze_email(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    """
-    Run the complete current email-security
-    analysis pipeline and persist the result.
-    """
-
     return AnalysisService(
         db
     ).analyze_email(
-        email_id
+        email_id=email_id,
+        user_id=current_user.id,
     )
 
 
@@ -57,13 +57,13 @@ def get_analysis_history(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    """
-    Return all previous analyses for an email.
-    """
-
     return AnalysisService(
         db
     ).get_history(
-        email_id
+        email_id=email_id,
+        user_id=current_user.id,
     )

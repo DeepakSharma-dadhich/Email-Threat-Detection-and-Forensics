@@ -21,6 +21,7 @@ from app.schemas.report import (
     ReportDecision,
     ReportEmailSummary,
 )
+from app.schemas import email
 
 
 class ReportService:
@@ -40,6 +41,7 @@ class ReportService:
     def get_report_data(
         self,
         analysis_id: UUID,
+        user_id: UUID,
     ) -> ReportDataResponse:
 
         analysis = (
@@ -59,6 +61,14 @@ class ReportService:
             EmailRecord,
             analysis.email_id,
         )
+        if (
+             email is None
+             or email.user_id != user_id
+):
+          raise HTTPException(
+            status_code=404,
+            detail="Analysis not found.",
+    )
 
         if email is None:
             raise HTTPException(

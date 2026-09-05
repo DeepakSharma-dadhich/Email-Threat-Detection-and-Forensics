@@ -38,6 +38,7 @@ class MailboxService:
 
     def list_emails(
         self,
+        user_id: UUID,
         status: str,
         limit: int = 20,
         offset: int = 0,
@@ -55,6 +56,7 @@ class MailboxService:
 
         rows, total = (
             self.repository.list_by_status(
+                user_id=user_id,
                 status=status,
                 limit=limit,
                 offset=offset,
@@ -145,11 +147,13 @@ class MailboxService:
     def get_investigation(
         self,
         email_id: UUID,
+        user_id: UUID,
     ) -> EmailInvestigationResponse:
 
         email = (
             self.repository.get_email(
-                email_id
+                email_id=email_id,
+                user_id=user_id,
             )
         )
 

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import (
     func,
     select,
@@ -5,8 +7,12 @@ from sqlalchemy import (
 
 from sqlalchemy.orm import Session
 
-from app.models.analysis_record import AnalysisRecord
-from app.models.email_record import EmailRecord
+from app.models.analysis_record import (
+    AnalysisRecord,
+)
+from app.models.email_record import (
+    EmailRecord,
+)
 
 
 class DashboardRepository:
@@ -19,11 +25,18 @@ class DashboardRepository:
 
     def count_emails(
         self,
+        user_id: UUID,
     ) -> int:
 
-        statement = select(
-            func.count(
-                EmailRecord.id
+        statement = (
+            select(
+                func.count(
+                    EmailRecord.id
+                )
+            )
+            .where(
+                EmailRecord.user_id
+                == user_id
             )
         )
 
@@ -36,11 +49,23 @@ class DashboardRepository:
 
     def count_analyses(
         self,
+        user_id: UUID,
     ) -> int:
 
-        statement = select(
-            func.count(
-                AnalysisRecord.analysis_id
+        statement = (
+            select(
+                func.count(
+                    AnalysisRecord.analysis_id
+                )
+            )
+            .join(
+                EmailRecord,
+                EmailRecord.id
+                == AnalysisRecord.email_id,
+            )
+            .where(
+                EmailRecord.user_id
+                == user_id
             )
         )
 
@@ -53,11 +78,23 @@ class DashboardRepository:
 
     def average_risk_score(
         self,
+        user_id: UUID,
     ) -> float:
 
-        statement = select(
-            func.avg(
-                AnalysisRecord.aggregate_score
+        statement = (
+            select(
+                func.avg(
+                    AnalysisRecord.aggregate_score
+                )
+            )
+            .join(
+                EmailRecord,
+                EmailRecord.id
+                == AnalysisRecord.email_id,
+            )
+            .where(
+                EmailRecord.user_id
+                == user_id
             )
         )
 
@@ -75,6 +112,7 @@ class DashboardRepository:
 
     def count_browser_isolation_candidates(
         self,
+        user_id: UUID,
     ) -> int:
 
         statement = (
@@ -83,10 +121,17 @@ class DashboardRepository:
                     AnalysisRecord.analysis_id
                 )
             )
+            .join(
+                EmailRecord,
+                EmailRecord.id
+                == AnalysisRecord.email_id,
+            )
             .where(
+                EmailRecord.user_id
+                == user_id,
                 AnalysisRecord
                 .browser_isolation_recommended
-                .is_(True)
+                .is_(True),
             )
         )
 
@@ -99,6 +144,7 @@ class DashboardRepository:
 
     def verdict_counts(
         self,
+        user_id: UUID,
     ) -> dict[str, int]:
 
         statement = (
@@ -107,6 +153,15 @@ class DashboardRepository:
                 func.count(
                     AnalysisRecord.analysis_id
                 ),
+            )
+            .join(
+                EmailRecord,
+                EmailRecord.id
+                == AnalysisRecord.email_id,
+            )
+            .where(
+                EmailRecord.user_id
+                == user_id
             )
             .group_by(
                 AnalysisRecord.verdict
@@ -125,6 +180,7 @@ class DashboardRepository:
 
     def recent_analyses(
         self,
+        user_id: UUID,
         limit: int = 10,
     ):
         statement = (
@@ -136,6 +192,10 @@ class DashboardRepository:
                 EmailRecord,
                 EmailRecord.id
                 == AnalysisRecord.email_id,
+            )
+            .where(
+                EmailRecord.user_id
+                == user_id
             )
             .order_by(
                 AnalysisRecord.created_at.desc()

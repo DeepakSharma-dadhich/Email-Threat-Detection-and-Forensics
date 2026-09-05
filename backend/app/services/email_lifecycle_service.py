@@ -1,74 +1,30 @@
-from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import AppError
 from app.models.email_lifecycle import (
     EmailActionHistory,
     EmailLifecycleState,
 )
-
 from app.models.email_record import EmailRecord
-
 from app.repositories.email_lifecycle_repository import (
     EmailLifecycleRepository,
 )
-
 from app.schemas.email_lifecycle import (
     EmailActionHistoryItem,
     EmailLifecycleResponse,
     EmailOperationalStatus,
-    LifecycleAction,
     LifecycleSummary,
 )
 
 
 class EmailLifecycleService:
 
-    RECOMMENDATION_STATUS_MAP = {
-        "allow": EmailOperationalStatus.INBOX,
-        "allow_with_monitoring": EmailOperationalStatus.INBOX,
-        "review": EmailOperationalStatus.REVIEW,
-        "quarantine": EmailOperationalStatus.QUARANTINE,
-        "block": EmailOperationalStatus.BLOCKED,
-    }
-
-    RECOMMENDATION_ACTION_MAP = {
-        "allow": LifecycleAction.SYSTEM_ALLOW,
-        "allow_with_monitoring": LifecycleAction.SYSTEM_MONITOR,
-        "review": LifecycleAction.SYSTEM_REVIEW,
-        "quarantine": LifecycleAction.SYSTEM_QUARANTINE,
-        "block": LifecycleAction.SYSTEM_BLOCK,
-    }
-
-    def __init__(
-        self,
-        db: Session,
-    ):
+    def __init__(self, db: Session):
         self.db = db
-
-        self.repository = (
-            EmailLifecycleRepository(
-                db
-            )
-        )
-
-    def _ensure_email_exists(
-        self,
-        email_id: UUID,
-    ) -> None:
-
-        email = self.db.get(
-            EmailRecord,
-            email_id,
-        )
-
-        if email is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Email not found.",
-            )
+        self.repository = EmailLifecycleRepository(db)
 
     def apply_system_decision(
         self,
@@ -77,276 +33,321 @@ class EmailLifecycleService:
         recommended_action: str,
     ) -> EmailLifecycleResponse:
 
-        self._ensure_email_exists(
-            email_id
+        action_value = (
+            recommended_action.value
+            if hasattr(recommended_action, "value")
+            else str(recommended_action)
         )
 
-        new_status = (
-            self.RECOMMENDATION_STATUS_MAP
-            .get(
-                recommended_action
-            )
+        status_mapping = {
+            "allow": EmailOperationalStatus.INBOX.value,
+            "allow_with_monitoring": EmailOperationalStatus.INBOX.value,
+            "review": EmailOperationalStatus.REVIEW.value,
+            "quarantine": EmailOperationalStatus.QUARANTINE.value,
+            "block": EmailOperationalStatus.BLOCKED.value,
+        }
+
+        action_mapping = {
+            "allow": "system_allow",
+            "allow_with_monitoring": "system_monitor",
+            "review": "system_review",
+            "quarantine": "system_quarantine",
+            "block": "system_block",
+        }
+
+        new_status = status_mapping.get(
+            action_value,
+            EmailOperationalStatus.REVIEW.value,
         )
 
-        action = (
-            self.RECOMMENDATION_ACTION_MAP
-            .get(
-                recommended_action
-            )
+        action = action_mapping.get(
+            action_value,
+            "system_review",
         )
 
-        if (
-            new_status is None
-            or action is None
-        ):
-            raise ValueError(
-                f"Unsupported recommended action: "
-                f"{recommended_action}"
-            )
-
-        return self._set_state(
+        return self._transition(
             email_id=email_id,
             new_status=new_status,
             action=action,
             actor_type="system",
-            reason=(
-                "Applied automatically from "
-                f"analysis recommendation: "
-                f"{recommended_action}"
-            ),
+            reason="Lifecycle state updated from analysis decision.",
             analysis_id=analysis_id,
+        )
+
+    def get_state(
+        self,
+        email_id: UUID,
+    ) -> EmailLifecycleResponse:
+
+        state = self.repository.get_state(
+            email_id
+        )
+
+        if state is None:
+            raise AppError(
+                "Email lifecycle state not found.",
+                404,
+                "LIFECYCLE_NOT_FOUND",
+            )
+
+        return self._state_response(
+            state
+        )
+
+    def get_history(
+        self,
+        email_id: UUID,
+    ) -> list[EmailActionHistoryItem]:
+
+        records = (
+            self.repository
+            .history_for_email(email_id)
+        )
+
+        return [
+            self._history_response(record)
+            for record in records
+        ]
+
+    def get_summary(
+        self,
+    ) -> LifecycleSummary:
+
+        counts = (
+            self.repository
+            .status_counts()
+        )
+
+        return self._build_summary(
+            counts
+        )
+
+    def get_summary_for_user(
+        self,
+        user_id: UUID,
+    ) -> LifecycleSummary:
+
+        statement = (
+            select(
+                EmailLifecycleState.status,
+                func.count(
+                    EmailLifecycleState.state_id
+                ),
+            )
+            .join(
+                EmailRecord,
+                EmailRecord.id
+                == EmailLifecycleState.email_id,
+            )
+            .where(
+                EmailRecord.user_id
+                == user_id
+            )
+            .group_by(
+                EmailLifecycleState.status
+            )
+        )
+
+        rows = self.db.execute(
+            statement
+        ).all()
+
+        counts = {
+            status: int(count)
+            for status, count in rows
+        }
+
+        return self._build_summary(
+            counts
         )
 
     def manual_quarantine(
         self,
         email_id: UUID,
-        reason: str | None,
+        reason: str | None = None,
     ) -> EmailLifecycleResponse:
 
-        return self._manual_change(
+        return self._transition(
             email_id=email_id,
             new_status=(
-                EmailOperationalStatus.QUARANTINE
+                EmailOperationalStatus
+                .QUARANTINE.value
             ),
-            action=(
-                LifecycleAction.MANUAL_QUARANTINE
-            ),
+            action="manual_quarantine",
+            actor_type="user",
             reason=reason,
         )
 
     def manual_block(
         self,
         email_id: UUID,
-        reason: str | None,
+        reason: str | None = None,
     ) -> EmailLifecycleResponse:
 
-        return self._manual_change(
+        return self._transition(
             email_id=email_id,
             new_status=(
-                EmailOperationalStatus.BLOCKED
+                EmailOperationalStatus
+                .BLOCKED.value
             ),
-            action=(
-                LifecycleAction.MANUAL_BLOCK
-            ),
+            action="manual_block",
+            actor_type="user",
             reason=reason,
         )
 
     def manual_review(
         self,
         email_id: UUID,
-        reason: str | None,
+        reason: str | None = None,
     ) -> EmailLifecycleResponse:
 
-        return self._manual_change(
+        return self._transition(
             email_id=email_id,
             new_status=(
-                EmailOperationalStatus.REVIEW
+                EmailOperationalStatus
+                .REVIEW.value
             ),
-            action=(
-                LifecycleAction.MANUAL_REVIEW
-            ),
+            action="manual_review",
+            actor_type="user",
             reason=reason,
         )
 
     def manual_allow(
         self,
         email_id: UUID,
-        reason: str | None,
+        reason: str | None = None,
     ) -> EmailLifecycleResponse:
 
-        return self._manual_change(
+        return self._transition(
             email_id=email_id,
             new_status=(
-                EmailOperationalStatus.INBOX
+                EmailOperationalStatus
+                .INBOX.value
             ),
-            action=(
-                LifecycleAction.MANUAL_ALLOW
-            ),
+            action="manual_allow",
+            actor_type="user",
             reason=reason,
         )
 
     def release(
         self,
         email_id: UUID,
-        reason: str | None,
+        reason: str | None = None,
     ) -> EmailLifecycleResponse:
 
-        current = (
-            self.repository.get_state(
-                email_id
-            )
+        current = self.repository.get_state(
+            email_id
         )
 
         if current is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Lifecycle state not found.",
+            raise AppError(
+                "Email lifecycle state not found.",
+                404,
+                "LIFECYCLE_NOT_FOUND",
             )
 
-        if current.status not in {
+        allowed_states = {
             EmailOperationalStatus.QUARANTINE.value,
             EmailOperationalStatus.REVIEW.value,
-        }:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Only quarantined or review emails "
-                    "can be released."
-                ),
+        }
+
+        if current.status not in allowed_states:
+            raise AppError(
+                "Only quarantined or review emails can be released.",
+                409,
+                "INVALID_LIFECYCLE_TRANSITION",
             )
 
-        return self._set_state(
+        return self._transition(
             email_id=email_id,
             new_status=(
-                EmailOperationalStatus.INBOX
+                EmailOperationalStatus
+                .INBOX.value
             ),
-            action=(
-                LifecycleAction.RELEASE
-            ),
-            actor_type="manual",
+            action="release",
+            actor_type="user",
             reason=reason,
-            analysis_id=(
-                current.latest_analysis_id
-            ),
         )
 
     def restore(
         self,
         email_id: UUID,
-        reason: str | None,
+        reason: str | None = None,
     ) -> EmailLifecycleResponse:
 
-        current = (
-            self.repository.get_state(
-                email_id
-            )
+        current = self.repository.get_state(
+            email_id
         )
 
         if current is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Lifecycle state not found.",
+            raise AppError(
+                "Email lifecycle state not found.",
+                404,
+                "LIFECYCLE_NOT_FOUND",
             )
 
         if (
             current.status
             != EmailOperationalStatus.BLOCKED.value
         ):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Only blocked emails "
-                    "can be restored."
-                ),
+            raise AppError(
+                "Only blocked emails can be restored.",
+                409,
+                "INVALID_LIFECYCLE_TRANSITION",
             )
 
-        return self._set_state(
+        return self._transition(
             email_id=email_id,
             new_status=(
-                EmailOperationalStatus.INBOX
+                EmailOperationalStatus
+                .INBOX.value
             ),
-            action=(
-                LifecycleAction.RESTORE
-            ),
-            actor_type="manual",
+            action="restore",
+            actor_type="user",
             reason=reason,
-            analysis_id=(
-                current.latest_analysis_id
-            ),
         )
 
-    def _manual_change(
+    def _transition(
         self,
         email_id: UUID,
-        new_status: EmailOperationalStatus,
-        action: LifecycleAction,
-        reason: str | None,
-    ) -> EmailLifecycleResponse:
-
-        self._ensure_email_exists(
-            email_id
-        )
-
-        current = (
-            self.repository.get_state(
-                email_id
-            )
-        )
-
-        analysis_id = (
-            current.latest_analysis_id
-            if current
-            else None
-        )
-
-        return self._set_state(
-            email_id=email_id,
-            new_status=new_status,
-            action=action,
-            actor_type="manual",
-            reason=reason,
-            analysis_id=analysis_id,
-        )
-
-    def _set_state(
-        self,
-        email_id: UUID,
-        new_status: EmailOperationalStatus,
-        action: LifecycleAction,
+        new_status: str,
+        action: str,
         actor_type: str,
-        reason: str | None,
-        analysis_id: UUID | None,
+        reason: str | None = None,
+        analysis_id: UUID | None = None,
     ) -> EmailLifecycleResponse:
 
-        now = datetime.now(
-            timezone.utc
+        email = self.db.get(
+            EmailRecord,
+            email_id,
         )
 
-        state = (
-            self.repository.get_state(
-                email_id
+        if email is None:
+            raise AppError(
+                "Email not found.",
+                404,
+                "EMAIL_NOT_FOUND",
             )
+
+        state = self.repository.get_state(
+            email_id
         )
 
         previous_status = (
             state.status
-            if state
+            if state is not None
             else None
         )
 
         if state is None:
             state = EmailLifecycleState(
                 email_id=email_id,
-                status=new_status.value,
+                status=new_status,
                 latest_analysis_id=analysis_id,
                 updated_by=actor_type,
-                updated_at=now,
             )
-
         else:
-            state.status = (
-                new_status.value
-            )
+            state.status = new_status
 
             if analysis_id is not None:
                 state.latest_analysis_id = (
@@ -354,7 +355,6 @@ class EmailLifecycleService:
                 )
 
             state.updated_by = actor_type
-            state.updated_at = now
 
         self.repository.save_state(
             state
@@ -363,12 +363,11 @@ class EmailLifecycleService:
         history = EmailActionHistory(
             email_id=email_id,
             analysis_id=analysis_id,
-            action=action.value,
+            action=action,
             previous_status=previous_status,
-            new_status=new_status.value,
+            new_status=new_status,
             actor_type=actor_type,
             reason=reason,
-            created_at=now,
         )
 
         self.repository.save_history(
@@ -385,83 +384,10 @@ class EmailLifecycleService:
             state
         )
 
-    def get_state(
-        self,
-        email_id: UUID,
-    ) -> EmailLifecycleResponse:
-
-        state = (
-            self.repository.get_state(
-                email_id
-            )
-        )
-
-        if state is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Lifecycle state not found.",
-            )
-
-        return self._state_response(
-            state
-        )
-
-    def get_history(
-        self,
-        email_id: UUID,
-    ) -> list[EmailActionHistoryItem]:
-
-        self._ensure_email_exists(
-            email_id
-        )
-
-        records = (
-            self.repository.history_for_email(
-                email_id
-            )
-        )
-
-        return [
-            EmailActionHistoryItem(
-                action_id=(
-                    record.action_id
-                ),
-                email_id=(
-                    record.email_id
-                ),
-                analysis_id=(
-                    record.analysis_id
-                ),
-                action=(
-                    record.action
-                ),
-                previous_status=(
-                    record.previous_status
-                ),
-                new_status=(
-                    record.new_status
-                ),
-                actor_type=(
-                    record.actor_type
-                ),
-                reason=(
-                    record.reason
-                ),
-                created_at=(
-                    record.created_at
-                ),
-            )
-            for record in records
-        ]
-
-    def get_summary(
-        self,
+    @staticmethod
+    def _build_summary(
+        counts: dict[str, int],
     ) -> LifecycleSummary:
-
-        counts = (
-            self.repository
-            .status_counts()
-        )
 
         inbox = counts.get(
             EmailOperationalStatus.INBOX.value,
@@ -502,15 +428,31 @@ class EmailLifecycleService:
     ) -> EmailLifecycleResponse:
 
         return EmailLifecycleResponse(
+            state_id=state.state_id,
             email_id=state.email_id,
             status=state.status,
             latest_analysis_id=(
                 state.latest_analysis_id
             ),
-            updated_by=(
-                state.updated_by
+            updated_by=state.updated_by,
+            updated_at=state.updated_at,
+        )
+
+    @staticmethod
+    def _history_response(
+        record: EmailActionHistory,
+    ) -> EmailActionHistoryItem:
+
+        return EmailActionHistoryItem(
+            action_id=record.action_id,
+            email_id=record.email_id,
+            analysis_id=record.analysis_id,
+            action=record.action,
+            previous_status=(
+                record.previous_status
             ),
-            updated_at=(
-                state.updated_at
-            ),
+            new_status=record.new_status,
+            actor_type=record.actor_type,
+            reason=record.reason,
+            created_at=record.created_at,
         )

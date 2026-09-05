@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import UUID
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -14,22 +15,39 @@ GMAIL_SCOPES = [
 
 
 class GmailAuthClient:
-    def __init__(self):
+    def __init__(
+        self,
+        user_id: UUID,
+    ):
+        self.user_id = user_id
+
         self.credentials_path = Path(
             settings.GMAIL_CREDENTIALS_PATH
         )
 
-        self.token_path = Path(
-            settings.GMAIL_TOKEN_PATH
+        self.token_path = (
+            Path(settings.storage_root)
+            / "oauth"
+            / "users"
+            / str(user_id)
+            / "gmail_token.json"
         )
 
-    def get_credentials(self) -> Credentials:
+    def has_token(self) -> bool:
+        return self.token_path.exists()
+
+    def get_credentials(
+        self,
+    ) -> Credentials:
         credentials = None
 
         if self.token_path.exists():
-            credentials = Credentials.from_authorized_user_file(
-                str(self.token_path),
-                GMAIL_SCOPES,
+            credentials = (
+                Credentials
+                .from_authorized_user_file(
+                    str(self.token_path),
+                    GMAIL_SCOPES,
+                )
             )
 
         if (
@@ -37,22 +55,35 @@ class GmailAuthClient:
             and credentials.expired
             and credentials.refresh_token
         ):
-            credentials.refresh(Request())
+            credentials.refresh(
+                Request()
+            )
 
-        elif credentials is None or not credentials.valid:
+        elif (
+            credentials is None
+            or not credentials.valid
+        ):
             if not self.credentials_path.exists():
                 raise FileNotFoundError(
-                    "Gmail OAuth credentials file not found at "
+                    "Gmail OAuth credentials file "
+                    "not found at "
                     f"{self.credentials_path}"
                 )
 
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(self.credentials_path),
-                GMAIL_SCOPES,
+            flow = (
+                InstalledAppFlow
+                .from_client_secrets_file(
+                    str(
+                        self.credentials_path
+                    ),
+                    GMAIL_SCOPES,
+                )
             )
 
-            credentials = flow.run_local_server(
-                port=0
+            credentials = (
+                flow.run_local_server(
+                    port=0
+                )
             )
 
         self.token_path.parent.mkdir(
@@ -68,7 +99,9 @@ class GmailAuthClient:
         return credentials
 
     def build_service(self):
-        credentials = self.get_credentials()
+        credentials = (
+            self.get_credentials()
+        )
 
         return build(
             "gmail",

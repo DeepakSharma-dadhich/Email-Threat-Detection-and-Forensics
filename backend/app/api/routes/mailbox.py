@@ -8,7 +8,11 @@ from fastapi import (
 
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import (
+    get_current_user,
+)
 from app.db.session import get_db
+from app.models.user import User
 
 from app.schemas.mailbox import (
     EmailInvestigationResponse,
@@ -25,6 +29,7 @@ router = APIRouter()
 
 def _list_mailbox(
     status: str,
+    user_id: UUID,
     db: Session,
     limit: int,
     offset: int,
@@ -35,6 +40,7 @@ def _list_mailbox(
     service = MailboxService(db)
 
     return service.list_emails(
+        user_id=user_id,
         status=status,
         limit=limit,
         offset=offset,
@@ -66,9 +72,13 @@ def get_inbox(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return _list_mailbox(
         status="inbox",
+        user_id=current_user.id,
         db=db,
         limit=limit,
         offset=offset,
@@ -100,9 +110,13 @@ def get_review(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return _list_mailbox(
         status="review",
+        user_id=current_user.id,
         db=db,
         limit=limit,
         offset=offset,
@@ -134,9 +148,13 @@ def get_quarantine(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return _list_mailbox(
         status="quarantine",
+        user_id=current_user.id,
         db=db,
         limit=limit,
         offset=offset,
@@ -168,9 +186,13 @@ def get_blocked(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     return _list_mailbox(
         status="blocked",
+        user_id=current_user.id,
         db=db,
         limit=limit,
         offset=offset,
@@ -190,9 +212,13 @@ def get_email_investigation(
     db: Session = Depends(
         get_db
     ),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     service = MailboxService(db)
 
     return service.get_investigation(
-        email_id
+        email_id=email_id,
+        user_id=current_user.id,
     )

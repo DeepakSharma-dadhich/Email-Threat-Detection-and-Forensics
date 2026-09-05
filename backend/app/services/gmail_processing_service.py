@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.schemas.gmail import (
@@ -18,11 +20,16 @@ class GmailProcessingService:
     def __init__(
         self,
         db: Session,
+        user_id: UUID,
     ):
         self.db = db
+        self.user_id = user_id
 
         self.gmail_import_service = (
-            GmailImportService(db)
+            GmailImportService(
+                db=db,
+                user_id=user_id,
+            )
         )
 
         self.analysis_service = (
@@ -44,7 +51,8 @@ class GmailProcessingService:
         analysis = (
             self.analysis_service
             .analyze_email(
-                email_record.id
+                email_id=email_record.id,
+                user_id=self.user_id,
             )
         )
 

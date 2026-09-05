@@ -11,6 +11,8 @@ from app.models.email_lifecycle import (
     EmailActionHistory,
     EmailLifecycleState,
 )
+from app.models.user import User
+
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
 

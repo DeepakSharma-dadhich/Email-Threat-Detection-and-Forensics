@@ -9,18 +9,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
-from app.models.analysis_record import (
-    AnalysisRecord,
-)
-
+from app.models.analysis_record import AnalysisRecord
 from app.models.email_lifecycle import (
     EmailActionHistory,
     EmailLifecycleState,
 )
-
-from app.models.email_record import (
-    EmailRecord,
-)
+from app.models.email_record import EmailRecord
 
 
 class MailboxRepository:
@@ -33,6 +27,7 @@ class MailboxRepository:
 
     def list_by_status(
         self,
+        user_id: UUID,
         status: str,
         limit: int,
         offset: int,
@@ -41,7 +36,8 @@ class MailboxRepository:
     ) -> tuple[list[tuple], int]:
 
         conditions = [
-            EmailLifecycleState.status == status
+            EmailRecord.user_id == user_id,
+            EmailLifecycleState.status == status,
         ]
 
         if source:
@@ -130,6 +126,7 @@ class MailboxRepository:
     def get_email(
         self,
         email_id: UUID,
+        user_id: UUID,
     ) -> EmailRecord | None:
 
         stmt = (
@@ -137,7 +134,8 @@ class MailboxRepository:
                 EmailRecord
             )
             .where(
-                EmailRecord.id == email_id
+                EmailRecord.id == email_id,
+                EmailRecord.user_id == user_id,
             )
         )
 
