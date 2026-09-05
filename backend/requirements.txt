@@ -1,0 +1,13 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+SQLAlchemy==2.0.43
+psycopg[binary]==3.3.5
+pydantic==2.12.5
+pydantic-settings==2.12.0
+python-multipart==0.0.20
+alembic==1.16.5
+pytest==8.4.1
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+tldextract

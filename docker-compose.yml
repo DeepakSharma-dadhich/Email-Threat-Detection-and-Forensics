@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: email-security-postgres
+    environment:
+      POSTGRES_DB: email_security
+      POSTGRES_USER: emailsec
+      POSTGRES_PASSWORD: emailsec
+    ports:
+      - "5432:5432"
+    volumes:
+      - email_security_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emailsec -d email_security"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  email_security_pgdata:
