@@ -11,7 +11,7 @@ from app.api.routes import (
     test_lab,
     threat_intelligence,
 )
-
+from app.api.routes import mailbox
 
 api_router = APIRouter()
 
@@ -66,4 +66,10 @@ api_router.include_router(
     threat_intelligence.router,
     prefix="/threat-intelligence",
     tags=["Threat Intelligence"],
+)
+
+api_router.include_router(
+    mailbox.router,
+    prefix="/mailbox",
+    tags=["Mailbox"],
 )
